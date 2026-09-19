@@ -4592,6 +4592,43 @@ impl Window {
             .insert_primitive(path.scale(scale_factor));
     }
 
+    /// Paint a path whose vertices are already in scaled (device) pixels.
+    ///
+    /// Unlike [`Window::paint_path`], this never rescales the path's vertices per
+    /// frame: tessellate once via `Path::scale` at the current `scale_factor()`,
+    /// cache the resulting `Path<ScaledPixels>`, and repaint it each frame. The
+    /// cached path must be rebuilt when the scale factor changes.
+    pub fn paint_path_scaled(&mut self, path: &Path<ScaledPixels>, color: impl Into<Background>) {
+        self.paint_path_scaled_at(path, point(px(0.), px(0.)), color);
+    }
+
+    /// Paint a pre-scaled path (see [`Window::paint_path_scaled`]) translated by
+    /// `origin`, given in logical pixels.
+    ///
+    /// The translation copies nothing: the offset is stored on the path and the
+    /// renderer adds it while expanding vertices, so one cached path can be
+    /// repainted at a different position every frame.
+    pub fn paint_path_scaled_at(
+        &mut self,
+        path: &Path<ScaledPixels>,
+        origin: Point<Pixels>,
+        color: impl Into<Background>,
+    ) {
+        self.invalidator.debug_assert_paint();
+
+        let scale_factor = self.scale_factor();
+        let content_mask = self.content_mask();
+        let opacity = self.element_opacity();
+        let mut path = path.clone();
+        path.content_mask = content_mask.scale(scale_factor);
+        let color: Background = color.into();
+        path.color = color.opacity(opacity);
+        let origin = origin.scale(scale_factor);
+        path.bounds.origin += origin;
+        path.origin += origin;
+        self.next_frame.scene.insert_primitive(path);
+    }
+
     /// Paint an underline into the scene for the next frame at the current z-index.
     ///
     /// This method should only be called as part of the paint phase of element drawing.

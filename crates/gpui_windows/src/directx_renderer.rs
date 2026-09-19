@@ -633,11 +633,11 @@ impl DirectXRenderer {
         }
 
         // Collect all vertices and sprites for a single draw call
-        let mut vertices = Vec::new();
+        let mut vertices = Vec::with_capacity(paths.iter().map(|path| path.vertices.len()).sum());
 
         for path in paths {
             vertices.extend(path.vertices.iter().map(|v| PathRasterizationSprite {
-                xy_position: v.xy_position,
+                xy_position: v.xy_position + path.origin,
                 st_position: v.st_position,
                 color: path.color,
                 bounds: path.clipped_bounds(),

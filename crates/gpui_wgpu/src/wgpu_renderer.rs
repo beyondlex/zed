@@ -1705,11 +1705,11 @@ impl WgpuRenderer {
         paths: &[Path<ScaledPixels>],
         instance_offset: &mut u64,
     ) -> Result<bool> {
-        let mut vertices = Vec::new();
+        let mut vertices = Vec::with_capacity(paths.iter().map(|path| path.vertices.len()).sum());
         for path in paths {
             let bounds = path.clipped_bounds();
             vertices.extend(path.vertices.iter().map(|v| PathRasterizationVertex {
-                xy_position: v.xy_position,
+                xy_position: v.xy_position + path.origin,
                 st_position: v.st_position,
                 color: path.color,
                 bounds,

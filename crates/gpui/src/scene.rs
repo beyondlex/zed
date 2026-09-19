@@ -465,7 +465,7 @@ impl<'a> Iterator for BatchIterator<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[cfg_attr(
     all(
         any(target_os = "linux", target_os = "freebsd"),
@@ -793,6 +793,10 @@ pub struct Path<P: Clone + Debug + Default + PartialEq> {
     pub content_mask: ContentMask<P>,
     pub vertices: Vec<PathVertex<P>>,
     pub color: Background,
+    /// Translation applied to `vertices` at render time without copying them.
+    /// `bounds` always includes this offset, `vertices` alone do not; keep the
+    /// two in sync when mutating either directly.
+    pub origin: Point<P>,
     start: Point<P>,
     current: Point<P>,
     contour_count: usize,
@@ -813,6 +817,7 @@ impl Path<Pixels> {
             },
             content_mask: Default::default(),
             color: Default::default(),
+            origin: Point::default(),
             contour_count: 0,
         }
     }
@@ -833,6 +838,7 @@ impl Path<Pixels> {
             current: self.current.scale(factor),
             contour_count: self.contour_count,
             color: self.color,
+            origin: self.origin.map(|origin| origin.scale(factor)),
         }
     }
 

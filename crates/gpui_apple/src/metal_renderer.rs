@@ -674,18 +674,33 @@ impl MetalRenderer {
             Some(metal::MTLClearColor::new(0., 0., 0., alpha)),
         );
 
-        for batch in scene.batches() {
-            match batch {
+        let batches: Vec<PrimitiveBatch> = scene.batches().collect();
+        let mut batch_index = 0;
+        while batch_index < batches.len() {
+            match batches[batch_index].clone() {
                 PrimitiveBatch::Shadows(range) => {
-                    self.draw_shadows(range, instance_bindings, viewport_size, command_encoder)
+                    self.draw_shadows(range, instance_bindings, viewport_size, command_encoder);
+                    batch_index += 1;
                 }
                 PrimitiveBatch::Quads(range) => {
-                    self.draw_quads(range, instance_bindings, viewport_size, command_encoder)
+                    self.draw_quads(range, instance_bindings, viewport_size, command_encoder);
+                    batch_index += 1;
                 }
                 PrimitiveBatch::Paths(range) => {
-                    let paths = &scene.paths[range];
+                    // Adjacent path batches have no other primitives between them,
+                    // and premultiplied-over compositing is associative, so they can
+                    // share one intermediate pass: one full-viewport clear instead of
+                    // one per batch.
                     command_encoder.end_encoding();
 
+                    let mut paths_end = range.end;
+                    let mut next_index = batch_index + 1;
+                    while let Some(PrimitiveBatch::Paths(next_range)) = batches.get(next_index) {
+                        paths_end = next_range.end;
+                        next_index += 1;
+                    }
+
+                    let paths = &scene.paths[range.start..paths_end];
                     let did_draw = self.draw_paths_to_intermediate(
                         paths,
                         writer,
@@ -711,33 +726,42 @@ impl MetalRenderer {
                             return Err(error);
                         }
                     }
+                    batch_index = next_index;
                 }
                 PrimitiveBatch::Underlines(range) => {
-                    self.draw_underlines(range, instance_bindings, viewport_size, command_encoder)
+                    self.draw_underlines(range, instance_bindings, viewport_size, command_encoder);
+                    batch_index += 1;
                 }
-                PrimitiveBatch::MonochromeSprites { texture_id, range } => self
-                    .draw_monochrome_sprites(
+                PrimitiveBatch::MonochromeSprites { texture_id, range } => {
+                    self.draw_monochrome_sprites(
                         texture_id,
                         range,
                         instance_bindings,
                         viewport_size,
                         command_encoder,
-                    ),
-                PrimitiveBatch::PolychromeSprites { texture_id, range } => self
-                    .draw_polychrome_sprites(
+                    );
+                    batch_index += 1;
+                }
+                PrimitiveBatch::PolychromeSprites { texture_id, range } => {
+                    self.draw_polychrome_sprites(
                         texture_id,
                         range,
                         instance_bindings,
                         viewport_size,
                         command_encoder,
-                    ),
-                PrimitiveBatch::Surfaces(range) => self.draw_surfaces(
-                    &scene.surfaces[range.clone()],
-                    range.start,
-                    instance_bindings,
-                    viewport_size,
-                    command_encoder,
-                ),
+                    );
+                    batch_index += 1;
+                }
+                PrimitiveBatch::Surfaces(range) => {
+                    self.draw_surfaces(
+                        &scene.surfaces[range.clone()],
+                        range.start,
+                        instance_bindings,
+                        viewport_size,
+                        command_encoder,
+                    );
+                    batch_index += 1;
+                }
                 PrimitiveBatch::SubpixelSprites { .. } => unreachable!(),
             }
         }
@@ -762,10 +786,10 @@ impl MetalRenderer {
             .as_ref()
             .context("missing path intermediate texture")?;
 
-        let mut vertices = Vec::new();
+        let mut vertices = Vec::with_capacity(paths.iter().map(|path| path.vertices.len()).sum());
         for path in paths {
             vertices.extend(path.vertices.iter().map(|v| PathRasterizationVertex {
-                xy_position: v.xy_position,
+                xy_position: v.xy_position + path.origin,
                 st_position: v.st_position,
                 color: path.color,
                 bounds: path.bounds.intersect(&path.content_mask.bounds),
